@@ -1,5 +1,5 @@
 import * as debug from 'debug'
-import { Hrtime, hrtime2nano, ms2nano } from './utils'
+import { Hrtime, hrtime2nano, ms2nano, sum } from './utils'
 
 const db = debug('rolling-counter')
 
@@ -12,7 +12,7 @@ export class RollingCounter {
   private windowDuration: number
   private lastUpdatedAt: Hrtime
   private startTime: Hrtime
-  private buffer: number[]
+  private buffer: number[][]
   private opt: Opt
 
   constructor(c: Opt) {
@@ -24,14 +24,17 @@ export class RollingCounter {
     this.lastUpdatedAt = process.hrtime()
     this.startTime = process.hrtime()
 
-    this.buffer = Array(this.opt.windowSize).fill(0)
+    this.buffer = []
+    for (let i = 0; i < c.windowSize; i++) {
+      this.buffer.push([])
+    }
     db(this)
   }
 
   add(d: number) {
     this.dropExpired()
     const o = this.offset()
-    this.buffer[this.mapIndex(o)] += d
+    this.buffer[this.mapIndex(o)].push(d)
 
     db(`index: ${o}, ${this.mapIndex(o)}`)
     this.updatelastUpdatedAt()
@@ -39,12 +42,16 @@ export class RollingCounter {
 
   getCounter() {
     this.dropExpired()
-    return this.buffer.reduce((prev, acc) => (prev += acc), 0)
+    return this.buffer.reduce((prev, acc) => (prev += sum(acc)), 0)
   }
 
   getCounterArray() {
     this.dropExpired()
-    return [...this.buffer]
+    const res = []
+    for (const bucket of [...this.buffer]) {
+      res.push([...bucket])
+    }
+    return res
   }
 
   private dropExpired() {
@@ -56,7 +63,7 @@ export class RollingCounter {
     if (duration > this.opt.window) {
       db('reset all')
       for (let i = 0; i < this.opt.windowSize; i++) {
-        this.buffer[i] = 0
+        this.buffer[i] = []
       }
       return
     }
@@ -67,7 +74,7 @@ export class RollingCounter {
     for (let i = lastLeft + 1; i <= left; i++) {
       const mappedIndex = this.mapIndex(i)
       if (mappedIndex >= 0) {
-        this.buffer[mappedIndex] = 0
+        this.buffer[mappedIndex] = []
       }
     }
   }
